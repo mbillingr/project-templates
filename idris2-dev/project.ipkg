@@ -1,0 +1,5 @@
+package template-project
+
+sourcedir = "src"
+
+depends = contrib
