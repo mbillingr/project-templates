@@ -2,6 +2,7 @@ module LambdaLang
 
 import Data.List
 import Prelude.Types
+import System.REPL
 
 import Text.Lexer
 import public Text.Parser.Core
@@ -69,12 +70,16 @@ data Ast = Number Integer
          | Symbol String
          | Lambda String Ast
          | Apply Ast Ast
+         | Let String Ast Ast
+         | Define String Ast
 
 Interpolation Ast where
   interpolate (Number i) = show i
   interpolate (Symbol str) = str
   interpolate (Lambda p b) = "(lambda (\{p}) \{b})"
   interpolate (Apply f a) = "(\{f} \{a})"
+  interpolate (Let v a b) = "(let ((\{v} \{a})) \{b})"
+  interpolate (Define v x) = "(define \{v} \{x})"
 
 Show Ast where
   show = interpolate
@@ -116,10 +121,31 @@ parseApp = do consume LParen
               consume RParen
               pure (Apply f a)
 
+parseLet = do consume LParen
+              consume (Sym "let")
+              consume LParen
+              consume LParen
+              v <- parseSym
+              a <- parseExp
+              consume RParen
+              consume RParen
+              b <- parseExp
+              consume RParen
+              pure (Apply (Lambda v b) a)
+
+parseDef = do consume LParen
+              consume (Sym "define")
+              key <- parseSym
+              val <- parseExp
+              consume RParen
+              pure (Define key val)
+
 parseExp = map Number parseNum
        <|> map Symbol parseSym
        <|> parseLam
        <|> parseApp
+       <|> parseLet
+       <|> parseDef
 
 
 
@@ -144,15 +170,26 @@ envExtend : String -> Value -> Env -> Env
 envExtend k v es = (k, v) :: es
 
 
-eval : Ast -> Env -> Maybe Value
-eval (Number i) _ = Just (I i)
-eval (Symbol s) env = envLookup s env
-eval (Lambda p b) env = Just (F (\x => (eval b (envExtend p x env))))
-eval (Apply f a) env = do p <- eval f env
-                          v <- eval a env
-                          case p of
-                            (F g) => g v
-                            _ => Nothing
+mutual
+  apply : Ast -> Ast -> Env -> Maybe Value
+  apply f a env = do p <- fst (eval f env)
+                     v <- fst (eval a env)
+                     case p of
+                       (F g) => g v
+                       _ => Nothing
+
+  evalDefine : String -> Ast -> List (String, Value) -> (Maybe Value, List (String, Value))
+  evalDefine v x env = case (eval x env) of
+                         (Nothing, _) => (Nothing, env)
+                         ((Just y), _) => (Nothing, (envExtend v y env))
+
+  eval : Ast -> Env -> (Maybe Value, Env)
+  eval (Number i) env = (Just (I i), env)
+  eval (Symbol s) env = (envLookup s env, env)
+  eval (Lambda p b) env = (Just (F (\x => (fst (eval b (envExtend p x env))))), env)
+  eval (Apply f a) env = ((apply f a env), env)
+  eval (Let _ _ _) env = (Nothing, env)
+  eval (Define v x) env = evalDefine v x env
 
 defaultEnv = [
   ("Z", I 0),
@@ -161,9 +198,12 @@ defaultEnv = [
                    _ => Nothing))
 ]
 
+parse_and_eval : Env -> String -> Maybe (String, Env)
+parse_and_eval env src = case (parse parseExp (fst (stripWhitespace (lex expressionTokens src)))) of
+                          (Left errs) => Just ("Error: " ++ (show errs) ++ "\n", env)
+                          (Right (exp, _)) => let (res, env) = (eval exp env) 
+                                              in Just (show (map showVal res) ++ "\n", env)
+                       
+
 main : IO ()
-main = do putStr "alg>"
-          x <- getLine 
-          case (parse parseExp (fst (stripWhitespace (lex expressionTokens x)))) of
-            (Left errs) => putStrLn ("Error: " ++ (show errs))
-            (Right (exp, _)) => putStrLn (show (map showVal (eval exp defaultEnv)))
+main = do replWith defaultEnv "alg>" parse_and_eval
