@@ -39,7 +39,7 @@ toInt' : String -> Integer
 toInt' = cast
 
 lispSymbolChar : Lexer
-lispSymbolChar = alphaNum <|> oneOf "+-*/_#!@'`&%=;:,.<>"
+lispSymbolChar = alphaNum <|> oneOf "+-*/_#!?@'`&%=;:,.<>"
 
 lispSymbol : Lexer
 lispSymbol = lispSymbolChar <+> (many lispSymbolChar <|> digit)
@@ -195,7 +195,10 @@ defaultEnv = [
   ("Z", I 0),
   ("S", F (\x => case x of 
                    (I i) => Just (I (i + 1))
-                   _ => Nothing))
+                   _ => Nothing)),
+  ("Z?", (F (\x => Just (F (\zz => Just (F (\nz => case x of
+                                                        (I 0) => Just zz
+                                                        _ => Just nz)))))))
 ]
 
 parse_and_eval : Env -> String -> Maybe (String, Env)
