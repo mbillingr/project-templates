@@ -104,22 +104,33 @@ consume tok  = terminal "<symbol>" (\x => if x == tok then Just () else Nothing)
 
 parseExp : Rule Ast
 
+parseExps : Rule (List1 Ast)
+parseExps = some parseExp
+
+curriedLambda : (List1 String) -> Ast -> Ast
+curriedLambda (p ::: []) body = Lambda p body
+curriedLambda (p ::: (x :: xs)) body = Lambda p (curriedLambda (x ::: xs) body)
+
 parseLam : Rule Ast
 parseLam = do consume LParen
               consume (Sym "lambda")
               consume LParen
-              p <- parseSym
+              ps <- some parseSym
               consume RParen
               b <- parseExp
               consume RParen
-              pure (Lambda p b)
+              pure (curriedLambda ps b)
+
+curriedApply : Ast -> (List1 Ast) -> Ast
+curriedApply f (a ::: []) = Apply f a
+curriedApply f (a ::: (x :: xs)) = curriedApply (Apply f a) (x ::: xs)
 
 parseApp : Rule Ast
 parseApp = do consume LParen
               f <- parseExp
-              a <- parseExp
+              as <- parseExps
               consume RParen
-              pure (Apply f a)
+              pure (curriedApply f as)
 
 parseLet = do consume LParen
               consume (Sym "let")
@@ -143,9 +154,9 @@ parseDef = do consume LParen
 parseExp = map Number parseNum
        <|> map Symbol parseSym
        <|> parseLam
-       <|> parseApp
        <|> parseLet
        <|> parseDef
+       <|> parseApp
 
 
 
